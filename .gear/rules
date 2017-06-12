@@ -1,0 +1,4 @@
+tar: .
+#tar: .gear/@name@-postsubmodules name=@name@-@version@
+spec: .gear/libtgvoip.spec
+#copy: .gear/*.patch
