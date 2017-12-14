@@ -16,10 +16,6 @@
 void tgvoip_log_file_printf(char level, const char* msg, ...);
 void tgvoip_log_file_write_header();
 
-#if !defined(snprintf) && defined(_WIN32) && defined(__cplusplus_winrt)
-#define snprintf _snprintf
-#endif
-
 #if defined(__ANDROID__)
 
 #include <android/log.h>
@@ -70,6 +66,9 @@ void tgvoip_log_file_write_header();
 
 #endif
 
+#if !defined(snprintf) && defined(_WIN32) && defined(__cplusplus_winrt)
+#define snprintf _snprintf
+#endif
 
 #ifdef TGVOIP_LOG_VERBOSITY
 #if TGVOIP_LOG_VERBOSITY<5

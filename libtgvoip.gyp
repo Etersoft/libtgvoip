@@ -75,10 +75,16 @@
           '<(tgvoip_src_loc)/os/windows/AudioInputWASAPI.h',
 
           # macOS
+          '<(tgvoip_src_loc)/os/darwin/AudioInputAudioUnit.cpp',
+          '<(tgvoip_src_loc)/os/darwin/AudioInputAudioUnit.h',
+          '<(tgvoip_src_loc)/os/darwin/AudioOutputAudioUnit.cpp',
+          '<(tgvoip_src_loc)/os/darwin/AudioOutputAudioUnit.h',
           '<(tgvoip_src_loc)/os/darwin/AudioInputAudioUnitOSX.cpp',
           '<(tgvoip_src_loc)/os/darwin/AudioInputAudioUnitOSX.h',
           '<(tgvoip_src_loc)/os/darwin/AudioOutputAudioUnitOSX.cpp',
           '<(tgvoip_src_loc)/os/darwin/AudioOutputAudioUnitOSX.h',
+          '<(tgvoip_src_loc)/os/darwin/AudioUnitIO.cpp',
+          '<(tgvoip_src_loc)/os/darwin/AudioUnitIO.h',
           '<(tgvoip_src_loc)/os/darwin/DarwinSpecific.mm',
           '<(tgvoip_src_loc)/os/darwin/DarwinSpecific.h',
 
@@ -265,6 +271,7 @@
               'defines': [
                 'WEBRTC_POSIX',
                 'WEBRTC_MAC',
+                'TARGET_OS_OSX',
               ],
               'conditions': [
                 [ '"<(official_build_target)" == "mac32"', {
@@ -274,7 +281,7 @@
                   },
                   'include_dirs': [
                     '/usr/local/macold/include/c++/v1',
-                    '<(DEPTH)/../../../Libraries/macold/openssl-1.0.1h/include',
+                    '<(DEPTH)/../../../Libraries/macold/openssl/include',
                   ],
                 }, {
                   'xcode_settings': {
@@ -282,7 +289,7 @@
                     'CLANG_CXX_LIBRARY': 'libc++',
                   },
                   'include_dirs': [
-                    '<(DEPTH)/../../../Libraries/openssl-xcode/include',
+                    '<(DEPTH)/../../../Libraries/openssl/include',
                   ],
                 }]
               ]
@@ -290,7 +297,7 @@
           ],
           [
             '"<(OS)" == "win"', {
-              'msbuild_toolset': 'v140',
+              'msbuild_toolset': 'v141',
               'defines': [
                 'NOMINMAX',
                 '_USING_V110_SDK71_',
@@ -328,7 +335,7 @@
                     '_DEBUG',
                   ],
                   'include_dirs': [
-                    '<(DEPTH)/../../../Libraries/openssl_debug/Debug/include',
+                    '<(DEPTH)/../../../Libraries/openssl/Debug/include',
                   ],
                   'msvs_settings': {
                     'VCCLCompilerTool': {
