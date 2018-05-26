@@ -1,7 +1,7 @@
 # see LIBTGVOIP_VERSION in VoIPController.h for a version
-%define soname 0.0
+%define soname 0.1
 Name: libtgvoip
-Version: 1.2.18
+Version: 1.2.18t
 Release: alt1
 
 Summary: VoIP library for Telegram clients
@@ -35,7 +35,7 @@ developing applications that use %name.
 
 %prep
 %setup
-%__subst "s|-msse2|-msse2 -I%_includedir/pulse|g" libtgvoip.gyp
+#__subst "s|-msse2|-msse2 -I%_includedir/pulse|g" libtgvoip.gyp
 %__subst "s|static_library',|shared_library',\n'product_extension': 'so.%soname',|" libtgvoip.gyp
 %__subst "s|.*dependencies.*|'link_settings': { 'libraries': ['-ldl', '-lpthread', '-lopus', '-lcrypto'], },|g" libtgvoip.gyp
 
@@ -87,8 +87,8 @@ cp -a audio/*.h %buildroot%_includedir/tgvoip/audio/
 %_pkgconfigdir/%name.pc
 
 %changelog
-* Sun May 27 2018 Vitaly Lipatov <lav@altlinux.ru> 1.2.18-alt1
-- build new version
+* Sun May 27 2018 Vitaly Lipatov <lav@altlinux.ru> 1.2.18t-alt1
+- build new version (latests code from tdesktop)
 
 * Thu Dec 14 2017 Vitaly Lipatov <lav@altlinux.ru> 0.4.2.1-alt1
 - update to last git commit https://github.com/telegramdesktop/libtgvoip tdesktop
