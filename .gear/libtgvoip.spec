@@ -2,7 +2,7 @@
 %define soname 0.1
 Name: libtgvoip
 Version: 1.2.18t
-Release: alt1
+Release: alt2
 
 Summary: VoIP library for Telegram clients
 
@@ -87,6 +87,9 @@ cp -a audio/*.h %buildroot%_includedir/tgvoip/audio/
 %_pkgconfigdir/%name.pc
 
 %changelog
+* Mon May 28 2018 Vitaly Lipatov <lav@altlinux.ru> 1.2.18t-alt2
+- Sync with telegram submodule: Update libtgvoip to fix a possible crash
+
 * Sun May 27 2018 Vitaly Lipatov <lav@altlinux.ru> 1.2.18t-alt1
 - build new version (latests code from tdesktop)
 
