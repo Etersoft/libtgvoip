@@ -8,7 +8,7 @@
 #define LIBTGVOIP_ECHOCANCELLER_H
 
 #include "threading.h"
-#include "BufferPool.h"
+#include "Buffers.h"
 #include "BlockingQueue.h"
 #include "MediaStreamItf.h"
 
@@ -29,6 +29,7 @@ private:
 	bool enableAEC;
 	bool enableAGC;
 	bool enableNS;
+	bool isOn;
 #ifndef TGVOIP_NO_DSP
 	void RunBufferFarendThread(void* arg);
 	bool didBufferFarend;
