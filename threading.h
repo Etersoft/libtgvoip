@@ -38,6 +38,10 @@ namespace tgvoip{
 #include <pthread.h>
 #include <semaphore.h>
 #include <sched.h>
+#include <unistd.h>
+#ifdef __APPLE__
+#include "os/darwin/DarwinSpecific.h"
+#endif
 
 namespace tgvoip{
 	class Mutex{
@@ -58,6 +62,10 @@ namespace tgvoip{
 			pthread_mutex_unlock(&mtx);
 		}
 
+		pthread_mutex_t* NativeHandle(){
+			return &mtx;
+		}
+
 	private:
 		Mutex(const Mutex& other);
 		pthread_mutex_t mtx;
@@ -69,16 +77,19 @@ namespace tgvoip{
 			name=NULL;
 		}
 
-		~Thread(){
+		virtual ~Thread(){
 			delete entry;
 		}
 
 		void Start(){
-			pthread_create(&thread, NULL, Thread::ActualEntryPoint, this);
+			if(pthread_create(&thread, NULL, Thread::ActualEntryPoint, this)==0){
+				valid=true;
+			}
 		}
 
 		void Join(){
-			pthread_join(thread, NULL);
+			if(valid)
+				pthread_join(thread, NULL);
 		}
 
 		void SetName(const char* name){
@@ -87,17 +98,30 @@ namespace tgvoip{
 
 
 		void SetMaxPriority(){
+#ifdef __APPLE__
+			maxPriority=true;
+#endif
+		}
 
+		static void Sleep(double seconds){
+			usleep((useconds_t)(seconds*1000000000));
+		}
+
+		bool IsCurrent(){
+			return pthread_equal(thread, pthread_self())!=0;
 		}
 
 	private:
 		static void* ActualEntryPoint(void* arg){
 			Thread* self=reinterpret_cast<Thread*>(arg);
 			if(self->name){
-#ifndef __APPLE__
+#if !defined(__APPLE__) && !defined(__gnu_hurd__)
 				pthread_setname_np(self->thread, self->name);
-#else
+#elif !defined(__gnu_hurd__)
 				pthread_setname_np(self->name);
+				if(self->maxPriority){
+					DarwinSpecific::SetCurrentThreadPriority(DarwinSpecific::THREAD_PRIO_USER_INTERACTIVE);
+				}
 #endif
 			}
 			self->entry->Invoke(self->arg);
@@ -107,6 +131,8 @@ namespace tgvoip{
 		void* arg;
 		pthread_t thread;
 		const char* name;
+		bool maxPriority=false;
+		bool valid=false;
 	};
 }
 
@@ -220,6 +246,7 @@ namespace tgvoip{
 	public:
 		Thread(MethodPointerBase* entry, void* arg) : entry(entry), arg(arg){
 			name=NULL;
+			thread=NULL;
 		}
 
 		~Thread(){
@@ -227,10 +254,12 @@ namespace tgvoip{
 		}
 
 		void Start(){
-			thread=CreateThread(NULL, 0, Thread::ActualEntryPoint, this, 0, NULL);
+			thread=CreateThread(NULL, 0, Thread::ActualEntryPoint, this, 0, &id);
 		}
 
 		void Join(){
+			if(!thread)
+				return;
 #if !defined(WINAPI_FAMILY) || WINAPI_FAMILY!=WINAPI_FAMILY_PHONE_APP
 			WaitForSingleObject(thread, INFINITE);
 #else
@@ -245,6 +274,14 @@ namespace tgvoip{
 
 		void SetMaxPriority(){
 			SetThreadPriority(thread, THREAD_PRIORITY_HIGHEST);
+		}
+
+		static void Sleep(double seconds){
+			::Sleep((DWORD)(seconds*1000));
+		}
+
+		bool IsCurrent(){
+			return id==GetCurrentThreadId();
 		}
 
 	private:
@@ -278,6 +315,7 @@ namespace tgvoip{
 		MethodPointerBase* entry;
 		void* arg;
 		HANDLE thread;
+		DWORD id;
 		const char* name;
 	};
 

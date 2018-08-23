@@ -13,7 +13,6 @@
 #include <sys/ioctl.h>
 #include <unistd.h>
 #include <netinet/tcp.h>
-#include <ifaddrs.h>
 #include "../../logging.h"
 #include "../../VoIPController.h"
 #include "../../Buffers.h"
@@ -23,6 +22,8 @@
 #include <sys/system_properties.h>
 extern JavaVM* sharedJVM;
 extern jclass jniUtilitiesClass;
+#else
+#include <ifaddrs.h>
 #endif
 
 using namespace tgvoip;
@@ -53,7 +54,7 @@ void NetworkSocketPosix::SetMaxPriority(){
 	if(res<0){
 		LOGE("error setting darwin-specific net priority: %d / %s", errno, strerror(errno));
 	}
-#else
+#elif defined(__linux__)
 	int prio=5;
 	int res=setsockopt(fd, SOL_SOCKET, SO_PRIORITY, &prio, sizeof(prio));
 	if(res<0){
@@ -64,6 +65,8 @@ void NetworkSocketPosix::SetMaxPriority(){
 	if(res<0){
 		LOGE("error setting ip tos: %d / %s", errno, strerror(errno));
 	}
+#else
+	LOGI("cannot set socket priority");
 #endif
 }
 
@@ -143,6 +146,10 @@ void NetworkSocketPosix::Send(NetworkPacket *packet){
 }
 
 void NetworkSocketPosix::Receive(NetworkPacket *packet){
+	if(failed){
+		packet->length=0;
+		return;
+	}
 	if(protocol==PROTO_UDP){
 		int addrLen=sizeof(sockaddr_in6);
 		sockaddr_in6 srcAddr;
@@ -174,6 +181,7 @@ void NetworkSocketPosix::Receive(NetworkPacket *packet){
 		if(res<=0){
 			LOGE("Error receiving from TCP socket: %d / %s", errno, strerror(errno));
 			failed=true;
+			packet->length=0;
 		}else{
 			packet->length=(size_t)res;
 			packet->address=tcpConnectedAddress;
@@ -488,7 +496,7 @@ bool NetworkSocketPosix::Select(std::vector<NetworkSocket *> &readFds, std::vect
 
 	if(canceller && FD_ISSET(canceller->pipeRead, &readSet) && !anyFailed){
 		char c;
-		read(canceller->pipeRead, &c, 1);
+		(void) read(canceller->pipeRead, &c, 1);
 		return false;
 	}else if(anyFailed){
 		FD_ZERO(&readSet);
@@ -537,7 +545,7 @@ SocketSelectCancellerPosix::~SocketSelectCancellerPosix(){
 
 void SocketSelectCancellerPosix::CancelSelect(){
 	char c=1;
-	write(pipeWrite, &c, 1);
+	(void) write(pipeWrite, &c, 1);
 }
 
 int NetworkSocketPosix::GetDescriptorFromSocket(NetworkSocket *socket){

@@ -6,6 +6,11 @@
 
 #include "AudioInput.h"
 #include "../logging.h"
+
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #if defined(__ANDROID__)
 #include "../os/android/AudioInputAndroid.h"
 #elif defined(__APPLE__)
@@ -19,9 +24,13 @@
 #include "../os/windows/AudioInputWave.h"
 #endif
 #include "../os/windows/AudioInputWASAPI.h"
-#elif defined(__linux__)
+#elif defined(__linux__) || defined(__FreeBSD_kernel__) || defined(__gnu_hurd__)
+#ifndef WITHOUT_ALSA
 #include "../os/linux/AudioInputALSA.h"
-#include "../os/linux/AudioInputPulse.h"
+#endif
+#ifndef WITHOUT_PULSE
+#include "../os/linux/AudioPulse.h"
+#endif
 #else
 #error "Unsupported operating system"
 #endif
@@ -37,34 +46,6 @@ AudioInput::AudioInput() : currentDevice("default"){
 
 AudioInput::AudioInput(std::string deviceID) : currentDevice(deviceID){
 	failed=false;
-}
-
-AudioInput *AudioInput::Create(std::string deviceID, void* platformSpecific){
-#if defined(__ANDROID__)
-	return new AudioInputAndroid();
-#elif defined(__APPLE__)
-#if TARGET_OS_OSX
-	if(kCFCoreFoundationVersionNumber<kCFCoreFoundationVersionNumber10_7)
-		return new AudioInputAudioUnitLegacy(deviceID);
-#endif
-	return new AudioInputAudioUnit(deviceID, reinterpret_cast<AudioUnitIO*>(platformSpecific));
-#elif defined(_WIN32)
-#ifdef TGVOIP_WINXP_COMPAT
-	if(LOBYTE(LOWORD(GetVersion()))<6)
-		return new AudioInputWave(deviceID);
-#endif
-	return new AudioInputWASAPI(deviceID);
-#elif defined(__linux__)
-	if(AudioInputPulse::IsAvailable()){
-		AudioInputPulse* aip=new AudioInputPulse(deviceID);
-		if(!aip->IsInitialized())
-			delete aip;
-		else
-			return aip;
-		LOGW("in: PulseAudio available but not working; trying ALSA");
-	}
-	return new AudioInputALSA(deviceID);
-#endif
 }
 
 
@@ -88,8 +69,14 @@ void AudioInput::EnumerateDevices(std::vector<AudioInputDevice>& devs){
 #endif
 	AudioInputWASAPI::EnumerateDevices(devs);
 #elif defined(__linux__) && !defined(__ANDROID__)
-	if(!AudioInputPulse::IsAvailable() || !AudioInputPulse::EnumerateDevices(devs))
+#if !defined(WITHOUT_PULSE) && !defined(WITHOUT_ALSA)
+	if(!AudioInputPulse::EnumerateDevices(devs))
 		AudioInputALSA::EnumerateDevices(devs);
+#elif defined(WITHOUT_PULSE)
+	AudioInputALSA::EnumerateDevices(devs);
+#else
+	AudioInputPulse::EnumerateDevices(devs)
+#endif
 #endif
 }
 
