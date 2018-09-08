@@ -2,8 +2,8 @@
 %def_without webrtc
 %define soname 0.3
 Name: libtgvoip
-Version: 2.2.2
-Release: alt2
+Version: 2.2.4
+Release: alt1
 
 Summary: VoIP library for Telegram clients
 
@@ -13,7 +13,7 @@ License: Unlicense
 Url: https://github.com/telegramdesktop/libtgvoip
 Packager: Vitaly Lipatov <lav@altlinux.ru>
 
-# Source-git: https://github.com/telegramdesktop/libtgvoip.git
+# Source-git: https://github.com/grishka/libtgvoip.git
 Source: %name-%version.tar
 
 BuildRequires: gyp gcc-c++ libopus-devel libssl-devel libalsa-devel libpulseaudio-devel
@@ -89,6 +89,11 @@ cp -a audio/*.h %buildroot%_includedir/tgvoip/audio/
 %_pkgconfigdir/%name.pc
 
 %changelog
+* Sat Sep 08 2018 Vitaly Lipatov <lav@altlinux.ru> 2.2.4-alt1
+- new version (2.2.4) from upsteam git
+ + added --enable-audio-callback to configure
+ + fixes
+
 * Wed Aug 29 2018 Vitaly Lipatov <lav@altlinux.ru> 2.2.2-alt2
 - rebuild with openssl 1.1
 
