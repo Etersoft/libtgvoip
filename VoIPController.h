@@ -20,6 +20,7 @@
 #include <string>
 #include <unordered_map>
 #include <memory>
+#include <atomic>
 #include "audio/AudioInput.h"
 #include "BlockingQueue.h"
 #include "audio/AudioOutput.h"
@@ -34,7 +35,7 @@
 #include "PacketReassembler.h"
 #include "MessageThread.h"
 
-#define LIBTGVOIP_VERSION "2.2.2"
+#define LIBTGVOIP_VERSION "2.2.4"
 
 #ifdef _WIN32
 #undef GetCurrentTime
@@ -178,8 +179,13 @@ namespace tgvoip{
 			double initTimeout;
 			double recvTimeout;
 			int dataSaving;
+#ifndef _WIN32
 			std::string logFilePath="";
 			std::string statsDumpFilePath="";
+#else
+			std::wstring logFilePath=L"";
+			std::wstring statsDumpFilePath=L"";
+#endif
 
 			bool enableAEC;
 			bool enableNS;
@@ -356,6 +362,11 @@ namespace tgvoip{
 		 */
 		void RequestCallUpgrade();
 		void SetEchoCancellationStrength(int strength);
+		int GetConnectionState();
+		
+#if defined(TGVOIP_USE_CALLBACK_AUDIO_IO)
+		void SetAudioDataCallbacks(std::function<void(int16_t*, size_t)> input, std::function<void(int16_t*, size_t)> output);
+#endif
 
 		struct Callbacks{
 			void (*connectionStateChanged)(VoIPController*, int);
@@ -412,6 +423,7 @@ namespace tgvoip{
 		virtual void SendExtra(Buffer& data, unsigned char type);
 		void SendStreamFlags(Stream& stream);
 		void InitializeTimers();
+		void ResetEndpointPingStats();
 
 	private:
 		struct Stream{
@@ -592,10 +604,16 @@ namespace tgvoip{
 		MessageThread messageThread;
 		bool wasEstablished=false;
 		bool receivedFirstStreamPacket=false;
+		std::atomic<unsigned int> unsentStreamPackets;
 
 		uint32_t initTimeoutID=MessageThread::INVALID_ID;
 		uint32_t noStreamsNopID=MessageThread::INVALID_ID;
 		uint32_t udpPingTimeoutID=MessageThread::INVALID_ID;
+		
+#if defined(TGVOIP_USE_CALLBACK_AUDIO_IO)
+		std::function<void(int16_t*, size_t)> audioInputDataCallback;
+		std::function<void(int16_t*, size_t)> audioOutputDataCallback;
+#endif
 
 		/*** server config values ***/
 		uint32_t maxAudioBitrate;
