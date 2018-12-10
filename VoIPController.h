@@ -39,7 +39,7 @@
 #include "MessageThread.h"
 #include "utils.h"
 
-#define LIBTGVOIP_VERSION "2.3"
+#define LIBTGVOIP_VERSION "2.4"
 
 #ifdef _WIN32
 #undef GetCurrentTime
@@ -381,6 +381,13 @@ namespace tgvoip{
 		void SetEchoCancellationStrength(int strength);
 		int GetConnectionState();
 		bool NeedRate();
+		/**
+		 * Get the maximum connection layer supported by this libtgvoip version.
+		 * Pass this as <code>max_layer</code> in the phone.phoneConnection TL object when requesting and accepting calls.
+		 */
+		static int32_t GetConnectionMaxLayer(){
+			return 92;
+		};
 
 #if defined(TGVOIP_USE_CALLBACK_AUDIO_IO)
 		void SetAudioDataCallbacks(std::function<void(int16_t*, size_t)> input, std::function<void(int16_t*, size_t)> output);
@@ -530,7 +537,6 @@ namespace tgvoip{
 		void RunRecvThread();
 		void RunSendThread();
 		void HandleAudioInput(unsigned char* data, size_t len, unsigned char* secondaryData, size_t secondaryLen);
-		void HandleVideoInput(EncodedVideoFrame& frame);
 		void UpdateAudioBitrateLimit();
 		void SetState(int state);
 		void UpdateAudioOutputState();

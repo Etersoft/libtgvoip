@@ -279,7 +279,7 @@ void AudioOutputWASAPI::ActuallySetCurrentDevice(std::string deviceID){
 
 	// {2C693079-3F59-49FD-964F-61C005EAA5D3}
 	const GUID guid = { 0x2c693079, 0x3f59, 0x49fd, { 0x96, 0x4f, 0x61, 0xc0, 0x5, 0xea, 0xa5, 0xd3 } };
-	res = audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST | 0x80000000/*AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM*/, 60 * 10000, 0, &format, &guid);
+	res = audioClient->Initialize(AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_EVENTCALLBACK | AUDCLNT_STREAMFLAGS_NOPERSIST | AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM | AUDCLNT_STREAMFLAGS_SRC_DEFAULT_QUALITY, 60 * 10000, 0, &format, &guid);
 	CHECK_RES(res, "audioClient->Initialize");
 
 	uint32_t bufSize;
@@ -287,12 +287,12 @@ void AudioOutputWASAPI::ActuallySetCurrentDevice(std::string deviceID){
 	CHECK_RES(res, "audioClient->GetBufferSize");
 
 	LOGV("buffer size: %u", bufSize);
-	REFERENCE_TIME latency;
+	estimatedDelay=0;
+	REFERENCE_TIME latency, devicePeriod;
 	if(SUCCEEDED(audioClient->GetStreamLatency(&latency))){
-		estimatedDelay=latency ? (int32_t)(latency/10000) : 60;
-		LOGD("playback latency: %d", estimatedDelay);
-	}else{
-		estimatedDelay=60;
+		if(SUCCEEDED(audioClient->GetDevicePeriod(&devicePeriod, NULL))){
+			estimatedDelay=(int32_t)(latency/10000+devicePeriod/10000);
+		}
 	}
 
 	res = audioClient->SetEventHandle(audioSamplesReadyEvent);
@@ -336,7 +336,7 @@ void AudioOutputWASAPI::RunThread() {
 	uint32_t bufferSize;
 	res=audioClient->GetBufferSize(&bufferSize);
 	CHECK_RES(res, "audioClient->GetBufferSize");
-	uint32_t framesWritten=0;
+	uint64_t framesWritten=0;
 
 	bool running=true;
 	//double prevCallback=VoIPController::GetCurrentTime();
@@ -354,6 +354,7 @@ void AudioOutputWASAPI::RunThread() {
 		}else if(waitResult==WAIT_OBJECT_0+2){ // audioSamplesReadyEvent
 			if(!audioClient)
 				continue;
+
 			BYTE* data;
 			uint32_t padding;
 			uint32_t framesAvailable;

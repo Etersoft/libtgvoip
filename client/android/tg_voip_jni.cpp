@@ -298,6 +298,10 @@ namespace tgvoip {
 		return static_cast<jboolean>(((VoIPController*)(intptr_t)inst)->NeedRate());
 	}
 
+	jint VoIPController_getConnectionMaxLayer(JNIEnv* env, jclass cls){
+		return VoIPController::GetConnectionMaxLayer();
+	}
+
 #pragma mark - AudioRecordJNI
 
 	void AudioRecordJNI_nativeCallback(JNIEnv* env, jobject thiz, jobject buffer){
@@ -499,6 +503,7 @@ extern "C" void tgvoipRegisterNatives(JNIEnv* env){
 		AudioInputAndroid::releaseMethod=env->GetMethodID(cls, "release", "()V");
 		AudioInputAndroid::startMethod=env->GetMethodID(cls, "start", "()Z");
 		AudioInputAndroid::stopMethod=env->GetMethodID(cls, "stop", "()V");
+		AudioInputAndroid::getEnabledEffectsMaskMethod=env->GetMethodID(cls, "getEnabledEffectsMask", "()I");
 
 		cls=env->FindClass(TGVOIP_PACKAGE_PATH "/AudioTrackJNI");
 		AudioOutputAndroid::jniClass=(jclass) env->NewGlobalRef(cls);
@@ -548,6 +553,7 @@ extern "C" void tgvoipRegisterNatives(JNIEnv* env){
 			{"nativeSendGroupCallKey", "(J[B)V", (void*)&tgvoip::VoIPController_nativeSendGroupCallKey},
 			{"nativeRequestCallUpgrade", "(J)V", (void*)&tgvoip::VoIPController_nativeRequestCallUpgrade},
 			{"nativeNeedRate", "(J)Z", (void*)&tgvoip::VoIPController_nativeNeedRate},
+			{"getConnectionMaxLayer", "()I", (void*)&tgvoip::VoIPController_getConnectionMaxLayer}
 			//{"nativeSetVideoSource", "(JJ)V", (void*)&tgvoip::VoIPController_nativeSetVideoSource},
 			//{"nativeSetVideoRenderer", "(JJ)V", (void*)&tgvoip::VoIPController_nativeSetVideoRenderer}
 	};
