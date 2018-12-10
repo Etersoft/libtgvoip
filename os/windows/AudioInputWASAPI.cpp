@@ -261,6 +261,12 @@ void AudioInputWASAPI::ActuallySetCurrentDevice(std::string deviceID){
 	CHECK_RES(res, "device->Activate");
 #else
 	Platform::String^ defaultDevID=Windows::Media::Devices::MediaDevice::GetDefaultAudioCaptureId(Windows::Media::Devices::AudioDeviceRole::Communications);
+	if(defaultDevID == nullptr){
+		LOGE("Didn't find capture device; failing");
+		failed=true;
+		return;
+	}
+
 	HRESULT res1, res2;
 	IAudioClient2* audioClient2=WindowsSandboxUtils::ActivateAudioDevice(defaultDevID->Data(), &res1, &res2);
 	CHECK_RES(res1, "activate1");
@@ -288,7 +294,7 @@ void AudioInputWASAPI::ActuallySetCurrentDevice(std::string deviceID){
 	LOGV("buffer size: %u", bufSize);
 	REFERENCE_TIME latency;
 	if(SUCCEEDED(audioClient->GetStreamLatency(&latency))){
-		estimatedDelay=latency ? latency/10000 : 60;
+		estimatedDelay=latency ? (int32_t)(latency/10000) : 60;
 		LOGD("capture latency: %d", estimatedDelay);
 	}else{
 		estimatedDelay=60;
