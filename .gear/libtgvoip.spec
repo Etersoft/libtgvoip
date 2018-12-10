@@ -2,7 +2,7 @@
 %def_without webrtc
 %define soname 0.3
 Name: libtgvoip
-Version: 2.2.4
+Version: 2.3
 Release: alt1
 
 Summary: VoIP library for Telegram clients
@@ -89,6 +89,9 @@ cp -a audio/*.h %buildroot%_includedir/tgvoip/audio/
 %_pkgconfigdir/%name.pc
 
 %changelog
+* Mon Dec 10 2018 Vitaly Lipatov <lav@altlinux.ru> 2.3-alt1
+- new version 2.3 (with rpmrb script)
+
 * Sat Sep 08 2018 Vitaly Lipatov <lav@altlinux.ru> 2.2.4-alt1
 - new version (2.2.4) from upsteam git
  + added --enable-audio-callback to configure
