@@ -6,6 +6,7 @@
 
 #include "OpusEncoder.h"
 #include <assert.h>
+#include <algorithm>
 #include "logging.h"
 #include "VoIPServerConfig.h"
 #ifdef HAVE_CONFIG_H
@@ -149,6 +150,11 @@ void tgvoip::OpusEncoder::RunThread(){
 			bool hasVoice=true;
 			if(echoCanceller)
 				echoCanceller->ProcessInput(packet, 960, hasVoice);
+			if(!postProcEffects.empty()){
+				for(effects::AudioEffect* effect:postProcEffects){
+					effect->Process(packet, 960);
+				}
+			}
 			if(packetsPerFrame==1){
 				Encode(packet, 960);
 			}else{
@@ -237,4 +243,13 @@ void tgvoip::OpusEncoder::SetSecondaryEncoderEnabled(bool enabled){
 
 void tgvoip::OpusEncoder::SetVadMode(bool vad){
 	vadMode=vad;
+}
+void tgvoip::OpusEncoder::AddAudioEffect(effects::AudioEffect *effect){
+	postProcEffects.push_back(effect);
+}
+
+void tgvoip::OpusEncoder::RemoveAudioEffect(effects::AudioEffect *effect){
+	std::vector<effects::AudioEffect*>::iterator i=std::find(postProcEffects.begin(), postProcEffects.end(), effect);
+	if(i!=postProcEffects.end())
+		postProcEffects.erase(i);
 }

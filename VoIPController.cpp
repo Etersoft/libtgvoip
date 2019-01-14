@@ -191,8 +191,6 @@ VoIPController::VoIPController() : activeNetItfName(""),
 	udpConnectivityState=UDP_UNKNOWN;
 	echoCancellationStrength=1;
 
-	outputAGC=NULL;
-	outputAGCEnabled=false;
 	peerCapabilities=0;
 	callbacks={0};
 	didReceiveGroupCallKey=false;
@@ -233,6 +231,7 @@ VoIPController::VoIPController() : activeNetItfName(""),
 	rateMaxAcceptableRTT=ServerConfig::GetSharedInstance()->GetDouble("rate_min_rtt", 0.6);
 	rateMaxAcceptableSendLoss=ServerConfig::GetSharedInstance()->GetDouble("rate_min_send_loss", 0.2);
 	packetLossToEnableExtraEC=ServerConfig::GetSharedInstance()->GetDouble("packet_loss_for_extra_ec", 0.02);
+	maxUnsentStreamPackets=static_cast<uint32_t>(ServerConfig::GetSharedInstance()->GetInt("max_unsent_stream_packets", 2));
 
 #ifdef __APPLE__
 	machTimestart=0;
@@ -299,8 +298,6 @@ VoIPController::~VoIPController(){
 	if(resolvedProxyAddress)
 		delete resolvedProxyAddress;
 	delete selectCanceller;
-	if(outputAGC)
-		delete outputAGC;
 	LOGD("Left VoIPController::~VoIPController");
 }
 
@@ -345,7 +342,7 @@ void VoIPController::Stop(){
 }
 
 bool VoIPController::NeedRate(){
-	return needRate;
+	return needRate && ServerConfig::GetSharedInstance()->GetBoolean("bad_call_rating", false);
 }
 
 void VoIPController::SetRemoteEndpoints(vector<Endpoint> endpoints, bool allowP2p, int32_t connectionMaxLayer){
@@ -429,19 +426,19 @@ void VoIPController::SetNetworkType(int type){
 	UpdateAudioBitrateLimit();
 	myIPv6=IPv6Address();
 	string itfName=udpSocket->GetLocalInterfaceInfo(NULL, &myIPv6);
-	LOGI("set network type: %s, active interface %s", NetworkTypeToString(type).c_str(), activeNetItfName.c_str());
+	LOGI("set network type: %s, active interface %s", NetworkTypeToString(type).c_str(), itfName.c_str());
 	LOGI("Local IPv6 address: %s", myIPv6.ToString().c_str());
+	if(IS_MOBILE_NETWORK(networkType)){
+		CellularCarrierInfo carrier=GetCarrierInfo();
+		if(!carrier.name.empty()){
+			LOGI("Carrier: %s [%s; mcc=%s, mnc=%s]", carrier.name.c_str(), carrier.countryCode.c_str(), carrier.mcc.c_str(), carrier.mnc.c_str());
+		}
+	}
 	if(itfName!=activeNetItfName){
 		udpSocket->OnActiveInterfaceChanged();
 		LOGI("Active network interface changed: %s -> %s", activeNetItfName.c_str(), itfName.c_str());
 		bool isFirstChange=activeNetItfName.length()==0 && state!=STATE_ESTABLISHED && state!=STATE_RECONNECTING;
 		activeNetItfName=itfName;
-		if(IS_MOBILE_NETWORK(networkType)){
-			CellularCarrierInfo carrier=GetCarrierInfo();
-			if(!carrier.name.empty()){
-				LOGI("Carrier: %s [%s; mcc=%s, mnc=%s]", carrier.name.c_str(), carrier.countryCode.c_str(), carrier.mcc.c_str(), carrier.mnc.c_str());
-			}
-		}
 		if(isFirstChange)
 			return;
 		if(currentEndpoint){
@@ -741,9 +738,6 @@ void VoIPController::SetCallbacks(VoIPController::Callbacks callbacks){
 
 void VoIPController::SetAudioOutputGainControlEnabled(bool enabled){
 	LOGD("New output AGC state: %d", enabled);
-	outputAGCEnabled=enabled;
-	if(outputAGC)
-		outputAGC->SetPassThrough(!enabled);
 }
 
 uint32_t VoIPController::GetPeerCapabilities(){
@@ -845,6 +839,64 @@ void VoIPController::SetConfig(const Config& cfg){
 	UpdateAudioBitrateLimit();
 }
 
+void VoIPController::SetPersistentState(vector<uint8_t> state){
+	using namespace json11;
+	
+	if(state.empty())
+		return;
+	string jsonErr;
+	string json=string(state.begin(), state.end());
+	Json _obj=Json::parse(json, jsonErr);
+	if(!jsonErr.empty()){
+		LOGE("Error parsing persistable state: %s", jsonErr.c_str());
+		return;
+	}
+	Json::object obj=_obj.object_items();
+	if(obj.find("proxy")!=obj.end()){
+		Json::object proxy=obj["proxy"].object_items();
+		lastTestedProxyServer=proxy["server"].string_value();
+		proxySupportsUDP=proxy["udp"].bool_value();
+		proxySupportsTCP=proxy["tcp"].bool_value();
+	}
+}
+
+vector<uint8_t> VoIPController::GetPersistentState(){
+	using namespace json11;
+	
+	Json::object obj=Json::object{
+		{"ver", 1},
+	};
+	if(proxyProtocol==PROXY_SOCKS5){
+		char pbuf[128];
+		snprintf(pbuf, sizeof(pbuf), "%s:%u", proxyAddress.c_str(), proxyPort);
+    	obj.insert({"proxy", Json::object{
+    		{"server", string(pbuf)},
+			{"udp", proxySupportsUDP},
+			{"tcp", proxySupportsTCP}
+    	}});
+	}
+	const char* jstr=Json(obj).dump().c_str();
+	return vector<uint8_t>(jstr, jstr+strlen(jstr));
+}
+
+void VoIPController::SetOutputVolume(float level){
+	outputVolume.SetLevel(level);
+}
+
+void VoIPController::SetInputVolume(float level){
+	inputVolume.SetLevel(level);
+}
+
+#if defined(__APPLE__) && TARGET_OS_OSX
+void VoIPController::SetAudioOutputDuckingEnabled(bool enabled){
+	macAudioDuckingEnabled=enabled;
+	audio::AudioUnitIO* osxAudio=dynamic_cast<audio::AudioUnitIO*>(audioIO);
+	if(osxAudio){
+		osxAudio->SetDuckingEnabled(enabled);
+	}
+}
+#endif
+
 #pragma mark - Internal intialization
 
 void VoIPController::InitializeTimers(){
@@ -877,8 +929,6 @@ void VoIPController::InitializeTimers(){
 		}, 0.1, 0.1);
 	}
 
-	udpConnectivityState=UDP_PING_PENDING;
-	udpPingTimeoutID=messageThread.Post(std::bind(&VoIPController::SendUdpPings, this), 0.0, 0.5);
 	messageThread.Post(std::bind(&VoIPController::SendRelayPings, this), 0.0, 2.0);
 }
 
@@ -968,14 +1018,14 @@ void VoIPController::HandleAudioInput(unsigned char *data, size_t len, unsigned 
 	if(stopping)
 		return;
 	unsentStreamPacketsHistory.Add(static_cast<unsigned int>(unsentStreamPackets));
-	if(unsentStreamPacketsHistory.Average()>=2){
+	if(unsentStreamPacketsHistory.Average()>=maxUnsentStreamPackets){
 		LOGW("Resetting stalled send queue");
 		sendQueue.clear();
 		unsentStreamPacketsHistory.Reset();
 		unsentStreamPackets=0;
 	}
-	if(waitingForAcks || dontSendPackets>0 || (unsigned int)unsentStreamPackets>=2){
-		LOGV("waiting for queue, dropping outgoing audio packet");
+	if(waitingForAcks || dontSendPackets>0 || ((unsigned int)unsentStreamPackets>=maxUnsentStreamPackets /*&& endpoints[currentEndpoint].type==Endpoint::Type::TCP_RELAY*/)){
+		LOGV("waiting for queue, dropping outgoing audio packet, %d %d %d [%d]", (unsigned int)unsentStreamPackets, waitingForAcks, dontSendPackets, maxUnsentStreamPackets);
 		return;
 	}
 	//LOGV("Audio packet size %u", (unsigned int)len);
@@ -1055,7 +1105,7 @@ void VoIPController::InitializeAudio(){
 	double t=GetCurrentTime();
 	shared_ptr<Stream>& outgoingAudioStream=outgoingStreams[0];
 	LOGI("before create audio io");
-	audioIO=audio::AudioIO::Create();
+	audioIO=audio::AudioIO::Create(currentAudioInput, currentAudioOutput);
 	audioInput=audioIO->GetInput();
 	audioOutput=audioIO->GetOutput();
 #ifdef __ANDROID__
@@ -1071,6 +1121,8 @@ void VoIPController::InitializeAudio(){
 			LOGI("Forcing software NS because built-in is not good");
 		}
 	}
+#elif defined(__APPLE__) && TARGET_OS_OSX
+	SetAudioOutputDuckingEnabled(macAudioDuckingEnabled);
 #endif
 	LOGI("AEC: %d NS: %d AGC: %d", config.enableAEC, config.enableNS, config.enableAGC);
 	echoCanceller=new EchoCanceller(config.enableAEC, config.enableNS, config.enableAGC);
@@ -1079,6 +1131,9 @@ void VoIPController::InitializeAudio(){
 	encoder->SetOutputFrameDuration(outgoingAudioStream->frameDuration);
 	encoder->SetEchoCanceller(echoCanceller);
 	encoder->SetSecondaryEncoderEnabled(false);
+	if(config.enableVolumeControl){
+		encoder->AddAudioEffect(&inputVolume);
+	}
 
 #if defined(TGVOIP_USE_CALLBACK_AUDIO_IO)
 	dynamic_cast<audio::AudioInputCallback*>(audioInput)->SetDataCallback(audioInputDataCallback);
@@ -1115,11 +1170,11 @@ void VoIPController::StartAudio(){
 void VoIPController::OnAudioOutputReady(){
 	LOGI("Audio I/O ready");
 	shared_ptr<Stream>& stm=incomingStreams[0];
-	outputAGC=new AutomaticGainControl();
-	outputAGC->SetPassThrough(!outputAGCEnabled);
 	stm->decoder=make_shared<OpusDecoder>(audioOutput, true, peerVersion>=6);
-	stm->decoder->AddAudioEffect(outputAGC);
 	stm->decoder->SetEchoCanceller(echoCanceller);
+	if(config.enableVolumeControl){
+		stm->decoder->AddAudioEffect(&outputVolume);
+	}
 	stm->decoder->SetJitterBuffer(stm->jitterBuffer);
 	stm->decoder->SetFrameDuration(stm->frameDuration);
 	stm->decoder->Start();
@@ -1373,6 +1428,14 @@ void VoIPController::InitUDPProxy(){
 		delete udpSocket;
 		udpSocket=realUdpSocket;
 	}
+	char sbuf[128];
+	snprintf(sbuf, sizeof(sbuf), "%s:%u", proxyAddress.c_str(), proxyPort);
+	string proxyHostPort(sbuf);
+	if(proxyHostPort==lastTestedProxyServer && !proxySupportsUDP){
+		LOGI("Proxy does not support UDP - using UDP directly instead");
+		return;
+	}
+	
 	NetworkSocket* tcp=NetworkSocket::Create(PROTO_TCP);
 	tcp->Connect(resolvedProxyAddress, proxyPort);
 	
@@ -1410,12 +1473,11 @@ void VoIPController::InitUDPProxy(){
 	if(udpProxy->IsFailed()){
 		udpProxy->Close();
 		delete udpProxy;
-		useTCP=true;
-		useUDP=false;
-		udpConnectivityState=UDP_NOT_AVAILABLE;
+		proxySupportsUDP=false;
 	}else{
 		udpSocket=udpProxy;
 	}
+	ResetUdpAvailability();
 }
 
 void VoIPController::RunRecvThread(){
@@ -1429,6 +1491,9 @@ void VoIPController::RunRecvThread(){
 			SetState(STATE_FAILED);
 			return;
 		}
+	}else{
+		udpConnectivityState=UDP_PING_PENDING;
+		udpPingTimeoutID=messageThread.Post(std::bind(&VoIPController::SendUdpPings, this), 0.0, 0.5);
 	}
 	while(runReceiver){
 		
@@ -1989,6 +2054,10 @@ simpleAudioBlock random_id:long random_bytes:string raw_data:string = DecryptedA
 		}
 	}
 
+#ifdef LOG_PACKETS
+	LOGV("Received: from=%s:%u, seq=%u, length=%u, type=%s", srcEndpoint.GetAddress().ToString().c_str(), srcEndpoint.port, pseq, packet.length, GetPacketTypeString(type).c_str());
+#endif
+
 	//LOGV("acks: %u -> %.2lf, %.2lf, %.2lf, %.2lf, %.2lf, %.2lf, %.2lf, %.2lf", lastRemoteAckSeq, remoteAcks[0], remoteAcks[1], remoteAcks[2], remoteAcks[3], remoteAcks[4], remoteAcks[5], remoteAcks[6], remoteAcks[7]);
 	//LOGD("recv: %u -> %.2lf, %.2lf, %.2lf, %.2lf, %.2lf, %.2lf, %.2lf, %.2lf", lastRemoteSeq, recvPacketTimes[0], recvPacketTimes[1], recvPacketTimes[2], recvPacketTimes[3], recvPacketTimes[4], recvPacketTimes[5], recvPacketTimes[6], recvPacketTimes[7]);
 	//LOGI("RTT = %.3lf", GetAverageRTT());
@@ -2066,6 +2135,10 @@ simpleAudioBlock random_id:long random_bytes:string raw_data:string = DecryptedA
 					preferredRelay=srcEndpoint.id;
 			}
 		}
+		if(!audioStarted && receivedInitAck){
+			StartAudio();
+			audioStarted=true;
+		}
 	}
 	if(type==PKT_INIT_ACK){
 		LOGD("Received init ack");
@@ -2108,7 +2181,8 @@ simpleAudioBlock random_id:long random_bytes:string raw_data:string = DecryptedA
 				}else{
 					stm->codec=(uint32_t) in.ReadInt32();
 				}
-				stm->frameDuration=(uint16_t) in.ReadInt16();
+				in.ReadInt16();
+				stm->frameDuration=60;
 				stm->enabled=in.ReadByte()==1;
 				if(stm->type==STREAM_TYPE_AUDIO){
 					stm->jitterBuffer=make_shared<JitterBuffer>(nullptr, stm->frameDuration);
@@ -2140,13 +2214,7 @@ simpleAudioBlock random_id:long random_bytes:string raw_data:string = DecryptedA
 				LOGD("MTProto2 wasn't initially enabled for whatever reason but peer supports it; upgrading");
 			}
 
-			/*{
-				MutexGuard m(audioIOMutex);
-				if(!audioInput){
-					StartAudio();
-				}
-			}*/
-			if(!audioStarted){
+			if(!audioStarted && receivedInit){
 				StartAudio();
 				audioStarted=true;
 			}
@@ -2265,6 +2333,9 @@ simpleAudioBlock random_id:long random_bytes:string raw_data:string = DecryptedA
 	if(type==PKT_PONG){
 		if(packetInnerLen>=4){
 			uint32_t pingSeq=(uint32_t) in.ReadInt32();
+#ifdef LOG_PACKETS
+			LOGD("Received pong for ping in seq %u", pingSeq);
+#endif
 			if(pingSeq==srcEndpoint.lastPingSeq){
 				srcEndpoint.rtts.Add(GetCurrentTime()-srcEndpoint.lastPingTime);
 				srcEndpoint.averageRTT=srcEndpoint.rtts.NonZeroAverage();
@@ -2615,6 +2686,9 @@ void VoIPController::SendPacket(unsigned char *data, size_t len, Endpoint& ep, P
 		}
 	}
 	//LOGV("Sending %d bytes to %s:%d", out.GetLength(), ep.address.ToString().c_str(), ep.port);
+#ifdef LOG_PACKETS
+	LOGV("Sending: to=%s:%u, seq=%u, length=%u, type=%s", ep.GetAddress().ToString().c_str(), ep.port, srcPacket.seq, out.GetLength(), GetPacketTypeString(srcPacket.type).c_str());
+#endif
 
 	NetworkPacket pkt={0};
 	pkt.address=&ep.GetAddress();
@@ -2668,6 +2742,34 @@ std::string VoIPController::NetworkTypeToString(int type){
 		default:
 			return "unknown";
 	}
+}
+
+std::string VoIPController::GetPacketTypeString(unsigned char type){
+	switch(type){
+		case PKT_INIT:
+			return "init";
+		case PKT_INIT_ACK:
+			return "init_ack";
+		case PKT_STREAM_STATE:
+			return "stream_state";
+		case PKT_STREAM_DATA:
+			return "stream_data";
+		case PKT_PING:
+			return "ping";
+		case PKT_PONG:
+			return "pong";
+		case PKT_LAN_ENDPOINT:
+			return "lan_endpoint";
+		case PKT_NETWORK_CHANGED:
+			return "network_changed";
+		case PKT_NOP:
+			return "nop";
+		case PKT_STREAM_EC:
+			return "stream_ec";
+	}
+    char buf[255];
+	snprintf(buf, sizeof(buf), "unknown(%u)", type);
+	return string(buf);
 }
 
 void VoIPController::AddIPv6Relays(){
@@ -3106,6 +3208,17 @@ void VoIPController::EvaluateUdpPingResults(){
 	else
 		avgPongs=0.0;
 	LOGI("UDP ping reply count: %.2f", avgPongs);
+	if(avgPongs==0.0 && proxyProtocol==PROXY_SOCKS5 && udpSocket!=realUdpSocket){
+		LOGI("Proxy does not let UDP through, closing proxy connection and using UDP directly");
+		NetworkSocket* proxySocket=udpSocket;
+		proxySocket->Close();
+		udpSocket=realUdpSocket;
+		selectCanceller->CancelSelect();
+		delete proxySocket;
+		proxySupportsUDP=false;
+		ResetUdpAvailability();
+		return;
+	}
 	bool configUseTCP=ServerConfig::GetSharedInstance()->GetBoolean("use_tcp", true);
 	if(configUseTCP){
 		if(avgPongs==0.0 || (udpConnectivityState==UDP_BAD && avgPongs<7.0)){
@@ -3431,6 +3544,8 @@ void VoIPController::UpdateQueuedPackets(){
 }
 
 void VoIPController::SendNopPacket(){
+	if(state!=STATE_ESTABLISHED)
+		return;
 	SendOrEnqueuePacket(PendingOutgoingPacket{
 			/*.seq=*/(firstSentPing=GenerateOutSeq()),
 			/*.type=*/PKT_NOP,
@@ -3517,4 +3632,47 @@ Endpoint::~Endpoint(){
 		socket->Close();
 		delete socket;
 	}
+}
+
+#pragma mark - AudioInputTester
+
+AudioInputTester::AudioInputTester(std::string deviceID) : deviceID(deviceID){
+	io=audio::AudioIO::Create(deviceID, "default");
+	if(io->Failed()){
+		LOGE("Audio IO failed");
+		return;
+	}
+	input=io->GetInput();
+	input->SetCallback([](unsigned char* data, size_t size, void* ctx) -> size_t{
+		reinterpret_cast<AudioInputTester*>(ctx)->Update(reinterpret_cast<int16_t*>(data), size/2);
+		return 0;
+	}, this);
+	input->Start();
+	/*thread=new MessageThread();
+	thread->Start();
+	thread->Post([this]{
+		this->callback(maxSample/(float)INT16_MAX);
+		maxSample=0;
+	}, updateInterval, updateInterval);*/
+}
+
+AudioInputTester::~AudioInputTester(){
+	//thread->Stop();
+	//delete thread;
+	input->Stop();
+	delete io;
+}
+
+void AudioInputTester::Update(int16_t *samples, size_t count){
+	for(size_t i=0;i<count;i++){
+		int16_t s=abs(samples[i]);
+		if(s>maxSample)
+			maxSample=s;
+	}
+}
+
+float AudioInputTester::GetAndResetLevel(){
+	float s=maxSample;
+	maxSample=0;
+	return s/(float)INT16_MAX;
 }
