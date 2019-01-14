@@ -3,8 +3,8 @@
 %def_without systemwebrtc
 %define soname 0.4
 Name: libtgvoip
-Version: 2.4
-Release: alt2
+Version: 2.4.2
+Release: alt1
 
 Summary: VoIP library for Telegram clients
 
@@ -95,6 +95,9 @@ cp -a video/*.h %buildroot%_includedir/tgvoip/video/
 %_pkgconfigdir/%name.pc
 
 %changelog
+* Tue Jan 15 2019 Vitaly Lipatov <lav@altlinux.ru> 2.4.2-alt1
+- new version 2.4.2 (with rpmrb script)
+
 * Tue Dec 11 2018 Vitaly Lipatov <lav@altlinux.ru> 2.4-alt2
 - real 2.4 release (tagged release from grishka@)
 
